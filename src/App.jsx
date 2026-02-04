@@ -1,530 +1,483 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Send, Bot, Database, Code, 
-  ZoomIn, ZoomOut, AlertCircle, Play, 
-  Layout, FileJson, ArrowRight, Layers, Check
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { TypstDocument } from '@myriaddreamin/typst.react';
+import { createTypstCompiler, preloadRemoteFonts } from '@myriaddreamin/typst.ts';
+import { useChat } from 'ai/react';
+import Editor from '@monaco-editor/react';
+import {
+  Send, Bot, Code2, Eye, Database,
+  PanelLeftClose, PanelLeft, Loader2,
+  FileCode, Sparkles, AlertCircle
 } from 'lucide-react';
 
-// --- 常量定义：物理单位转屏幕像素 (96 DPI) ---
-const MM_TO_PX = 3.78; // 1mm ≈ 3.78px
-const PT_TO_PX = 1.33; // 1pt ≈ 1.33px
-
-// --- 辅助函数：生成 UUID ---
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+// 将 JSON 值转换为 Typst 字面量语法
+const jsonToTypst = (value) => {
+  if (value === null || value === undefined) {
+    return 'none';
+  }
+  if (typeof value === 'string') {
+    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  if (Array.isArray(value)) {
+    const items = value.map(jsonToTypst).join(', ');
+    return `(${items})`;
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value)
+      .map(([k, v]) => `${k}: ${jsonToTypst(v)}`)
+      .join(', ');
+    return `(${entries})`;
+  }
+  return String(value);
 };
 
-// --- 插值引擎 ---
-const interpolate = (text, data) => {
-  if (typeof text !== 'string') return text;
-  return text.replace(/\{\{(.+?)\}\}/g, (match, content) => {
-    const parts = content.split('|');
-    const key = parts[0].trim();
-    const formatterStr = parts[1] ? parts[1].trim() : null;
+// 配置 Typst 渲染器 WASM 路径 (0.6.0 全局配置)
+TypstDocument.setWasmModuleInitOptions({
+  getModule: () => ({
+    module_or_path: fetch('/assets/typst_ts_renderer_bg.wasm').then(res => res.arrayBuffer())
+  })
+});
 
-    let value = data[key];
-    if (value === undefined) return `[${key}]`; // 缺省显示
+// Typst WASM 渲染器组件
+const TypstPreview = ({ code, data }) => {
+  const [compiler, setCompiler] = useState(null);
+  const [artifact, setArtifact] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-    if (formatterStr) {
-      if (formatterStr.startsWith('currency')) return `¥${Number(value).toFixed(2)}`;
-      if (formatterStr.startsWith('date')) return value; // 简化处理
-      if (formatterStr.startsWith('percent')) return `${value}%`;
-    }
-    return value;
-  });
-};
+  // 初始化编译器
+  useEffect(() => {
+    let mounted = true;
+    const initCompiler = async () => {
+      try {
+        const comp = createTypstCompiler();
 
-// --- 智能 Mock 数据生成器 ---
-const generateAutoMockData = (template) => {
-  const mock = {};
-  
-  const getElements = (node) => {
-    let els = [];
-    if (node.layers) els = node.layers.flatMap(l => l.elements || []);
-    else if (node.elements) els = node.elements;
-    return els;
-  };
+        // 加载中文字体 - 先获取数据，防止 WASM Panic
+        let fontData = null;
+        try {
+          // 尝试加载 public/fonts/SimHei.ttf
+          const fontRes = await fetch('/fonts/NotoSansSC-Regular.ttf');
+          if (fontRes.ok) {
+            fontData = new Uint8Array(await fontRes.arrayBuffer());
+          } else {
+            console.error('NotoSansSC-Regular.ttf font not found');
+            throw new Error('未找到 NotoSansSC-Regular.ttf 字体文件，请将其放入 public/fonts/ 目录');
+          }
+        } catch (fontErr) {
+          console.error('Failed to load font:', fontErr);
+          if (mounted) {
+            setError(fontErr.message || '字体加载失败');
+            setLoading(false);
+          }
+          return;
+        }
 
-  const traverse = (nodes) => {
-    if (!nodes) return;
-    nodes.forEach(el => {
-      const stringsToCheck = [el.content, ...(el.props ? Object.values(el.props) : [])];
-      stringsToCheck.forEach(str => {
-        if (typeof str === 'string') {
-          const matches = str.match(/\{\{(.+?)\}\}/g);
-          if (matches) {
-            matches.forEach(m => {
-              const rawContent = m.replace(/\{\{|\}\}/g, ''); 
-              const key = rawContent.split('|')[0].trim(); 
-              
-              if (!mock[key]) {
-                 const k = key.toLowerCase();
-                 if (k.includes('title') || k.includes('movie')) mock[key] = "阿凡达：水之道";
-                 else if (k.includes('theater') || k.includes('screen')) mock[key] = "IMAX 3号厅";
-                 else if (k.includes('row')) mock[key] = "7";
-                 else if (k.includes('seat')) mock[key] = "12";
-                 else if (k.includes('date')) mock[key] = "2025-12-31";
-                 else if (k.includes('time')) mock[key] = "19:30";
-                 else if (k.includes('price') || k.includes('amount')) mock[key] = 85.00;
-                 else if (k.includes('ticket') || k.includes('id')) mock[key] = "T88888888";
-                 else if (k.includes('qr')) mock[key] = "https://example.com";
-                 else if (k.includes('name')) mock[key] = "张三";
-                 else mock[key] = `[${key}]`;
-              }
-            });
+        await comp.init({
+          getModule: () => ({
+            module_or_path: fetch('/assets/typst_ts_web_compiler_bg.wasm').then(res => res.arrayBuffer())
+          }),
+          beforeBuild: [
+            preloadRemoteFonts([fontData])
+          ]
+        });
+
+        if (mounted) {
+          setCompiler(comp);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('Failed to init compiler:', err);
+        if (mounted) {
+          setError(`引擎初始化失败: ${err.message}`);
+          setLoading(false);
+        }
+      }
+    };
+
+    initCompiler();
+    return () => { mounted = false; };
+  }, []);
+
+  // 编译代码
+  useEffect(() => {
+    if (!compiler || !code) return;
+
+    const compile = async () => {
+      try {
+        // 构建完整代码 - 使用 JSON 数据注入
+        // 使用 Typst 内置的 json.decode 解析 JSON 字符串，比手动拼接字符串更健壮
+        const dataCode = `#let data = json.decode("${JSON.stringify(data).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")\n`;
+        const fullCode = dataCode + code;
+
+        // 编译
+        const mainFilePath = '/main.typ';
+        compiler.addSource(mainFilePath, fullCode);
+        const compileResult = await compiler.compile({
+          mainFilePath
+        });
+
+        console.log('Compilation Result:', compileResult);
+        const artifactData = compileResult.result;
+
+        if (artifactData && artifactData.length > 0) {
+          console.log('Artifact size:', artifactData.length);
+          setArtifact(artifactData);
+          setError(null);
+        } else {
+          console.warn('Artifact is empty!');
+          if (compileResult.diagnostics) {
+            console.log('Diagnostics:', compileResult.diagnostics);
           }
         }
-      });
-      if (el.elements) traverse(el.elements);
-    });
-  };
+      } catch (err) {
+        console.error('Compile error:', err);
+        setError(err.message || '编译错误');
+      }
+    };
 
-  traverse(getElements(template));
-  return JSON.stringify(mock, null, 2);
-};
+    // 防抖处理
+    const timer = setTimeout(compile, 300);
+    return () => clearTimeout(timer);
+  }, [compiler, code, data]);
 
-const DEFAULT_MOCK_DATA = { "user_name": "演示用户" };
-
-const resolveAsset = (src, assets) => {
-  if (!src) return '';
-  if (src.startsWith('ref:') && assets) {
-    const key = src.substring(4);
-    return assets[key] || '';
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-400">
+        <Loader2 className="animate-spin mr-2" size={20} />
+        <span>加载 Typst 引擎...</span>
+      </div>
+    );
   }
-  return src;
-};
-
-// --- 尺寸计算: 区分 mm 和 pt ---
-// lengthScale: 用于 mm 单位 (x, y, width, height, padding)
-// fontScale: 用于 pt 单位 (fontSize)
-const getDimension = (value, scale) => {
-  if (value === undefined || value === null) return 'auto';
-  if (typeof value === 'string' && value.endsWith('%')) return value; 
-  if (typeof value === 'number') return `${value * MM_TO_PX * scale}px`; 
-  return value;
-};
-
-// --- Renderer 组件 ---
-const Renderer = ({ template, scale, data, isThumbnail = false }) => {
-  if (!template || (!template.elements && !template.layers)) {
-    return <div className="flex items-center justify-center h-full text-gray-400 text-sm">暂无模板内容</div>;
-  }
-
-  const { canvas, assets } = template;
-  const elements = template.layers ? template.layers.flatMap(l => l.elements) : template.elements;
-  
-  // 画布尺寸总是 mm
-  const unitFactor = canvas?.unit === 'pt' ? 1.33 : MM_TO_PX;
-  const width = (canvas?.width || 210) * unitFactor;
-  const height = (canvas?.height || 297) * unitFactor;
 
   return (
-    <div 
-      className={`relative bg-white transition-all duration-300 ease-in-out ${isThumbnail ? 'shadow-sm' : 'shadow-xl'}`}
-      style={{
-        width: `${width * scale}px`,
-        height: `${height * scale}px`,
-        overflow: 'hidden',
-        transformOrigin: 'top left'
-      }}
-    >
-      {elements.map((el, idx) => (
-        <RenderElement 
-          key={el.id || idx} 
-          element={el} 
-          scale={scale} // 这里只传纯倍数，具体单位转换在内部做
-          assets={assets} 
-          data={data}
-          parentLayout="absolute"
-        />
-      ))}
-      
-      {!isThumbnail && (
-        <div className="absolute inset-[3mm] border border-dashed border-gray-300 pointer-events-none opacity-50"></div>
+    <div className="w-full h-full overflow-auto p-4 bg-white">
+      {error && (
+        <div className="absolute top-4 right-4 bg-red-100 text-red-600 p-2 rounded shadow text-xs flex items-center gap-2 z-10">
+          <AlertCircle size={14} />
+          {error}
+        </div>
+      )}
+      {artifact && (
+        <div style={{ width: '100%', minHeight: '200px' }}>
+          <TypstDocument
+            fill="#ffffff"
+            artifact={artifact}
+          />
+        </div>
       )}
     </div>
   );
 };
 
-const RenderElement = ({ element, scale, assets, data, parentLayout }) => {
-  const { type, x, y, width, height, props, style, elements, columns, headerStyle, layout, gap } = element;
-  
-  const resolvedContent = interpolate(element.content || (props && props.text), data);
-  const resolvedQrValue = interpolate(props?.value, data);
+// 默认 Typst 代码
+const DEFAULT_CODE = `
+// DeepPrint v2.0 - Typst Template
+#set page(width: 80mm, height: auto, margin: 5mm)
+#set text(size: 10pt, font: ("Noto Sans SC", "Arial"))
 
-  const isFlowItem = parentLayout === 'vertical' || parentLayout === 'horizontal';
+#align(center)[
+  #text(size: 16pt, weight: "bold")[Welcome to DeepPrint]
+]
 
-  const commonStyle = {
-    position: isFlowItem ? 'relative' : 'absolute',
-    left: isFlowItem ? 'auto' : `${(x || 0) * MM_TO_PX * scale}px`,
-    top: isFlowItem ? 'auto' : `${(y || 0) * MM_TO_PX * scale}px`,
-    width: getDimension(width, scale),
-    height: getDimension(height, scale),
-    zIndex: element.zIndex || 1,
-    ...convertStyle(style, scale, assets)
-  };
+#v(1em)
 
-  switch (type) {
-    case 'text':
-      return (
-        <div style={{
-          ...commonStyle,
-          display: 'flex',
-          alignItems: 'center', 
-          justifyContent: style?.textAlign === 'center' ? 'center' : style?.textAlign === 'right' ? 'flex-end' : 'flex-start',
-          whiteSpace: props?.wrap ? 'normal' : 'nowrap',
-          overflow: 'hidden',
-          lineHeight: props?.lineHeight || 1.2
-        }} title={resolvedContent}>
-          {resolvedContent}
-        </div>
-      );
-      
-    case 'rect':
-    case 'line':
-      const isLine = type === 'line';
-      const strokeW = (style?.strokeWidth || 0.5) * PT_TO_PX * scale; // 线宽通常也是 pt
-      
-      const lineStyle = isLine ? {
-         height: `${Math.max(1, strokeW)}px`,
-         borderTop: props?.dashArray ? `${Math.max(1, strokeW)}px dashed ${style?.stroke || '#000'}` : 'none',
-         backgroundColor: props?.dashArray ? 'transparent' : (style?.stroke || '#000')
-      } : {
-         backgroundColor: style?.backgroundColor || 'transparent',
-         border: style?.border || '1px solid #000'
-      };
+This is a demo template. Edit the code on the left or use AI chat to generate new templates.
 
-      return (
-        <div style={{
-          ...commonStyle,
-          ...lineStyle
-        }} />
-      );
+#v(1em)
 
-    case 'image':
-      const imgSrc = resolveAsset(props?.src, assets);
-      return (
-        <img 
-          src={imgSrc} 
-          alt="img"
-          style={{...commonStyle, objectFit: props?.objectFit || 'cover'}}
-          onError={(e) => { e.target.src = 'https://placehold.co/100x100?text=Err'; }}
-        />
-      );
+#text(weight: "bold")[Sample Data:]
+- Store: #data.store_name
+- Total: #data.total
+`;
 
-    case 'qrcode':
-      // 二维码尺寸按 mm 计算
-      const qrW = Math.floor((width || 20) * MM_TO_PX * scale);
-      const qrH = Math.floor((height || 20) * MM_TO_PX * scale);
-      const qrValue = resolvedQrValue || "DP";
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrW}x${qrH}&data=${encodeURIComponent(qrValue)}`;
-      return (
-        <div style={{...commonStyle}}>
-          <img src={qrUrl} alt="QR" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        </div>
-      );
-
-    case 'container':
-      const isFlexContainer = layout === 'vertical' || layout === 'horizontal';
-      const flexStyle = isFlexContainer ? {
-        display: 'flex',
-        flexDirection: layout === 'vertical' ? 'column' : 'row',
-        gap: `${(gap || 0) * MM_TO_PX * scale}px`,
-        alignItems: 'stretch',
-        flexWrap: 'nowrap'
-      } : {};
-
-      return (
-        <div style={{...commonStyle, ...flexStyle, border: 'none'}}>
-          {elements && elements.map((child, idx) => (
-             <RenderElement 
-                key={idx} 
-                element={child} 
-                scale={scale} 
-                assets={assets} 
-                data={data}
-                parentLayout={layout}
-             />
-          ))}
-        </div>
-      );
-
-    case 'table':
-      const dataKey = element.dataSource ? element.dataSource.replace(/[{}]/g, '') : '';
-      const tableData = Array.isArray(data[dataKey]) ? data[dataKey] : [];
-      return (
-        <div style={{...commonStyle, overflow: 'hidden', display: 'block'}}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: commonStyle.fontSize }}>
-            <thead>
-              <tr style={convertStyle(headerStyle, scale, assets)}>
-                {columns.map((col, idx) => (
-                  <th key={idx} style={{ padding: '2px', textAlign: col.align || 'left', width: col.width, borderBottom: '1px solid #ccc' }}>
-                    {col.header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {tableData.length > 0 ? tableData.map((row, rIdx) => (
-                <tr key={rIdx} style={{ borderBottom: '1px solid #eee' }}>
-                  {columns.map((col, cIdx) => (
-                    <td key={cIdx} style={{ padding: '2px', textAlign: col.align || 'left' }}>{row[col.field]}</td>
-                  ))}
-                </tr>
-              )) : (
-                <tr><td colSpan={columns.length} className="text-center text-gray-300 py-1">暂无数据</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      );
-    default: return null;
-  }
+// 默认数据
+const DEFAULT_DATA = {
+  store_name: "示例店铺",
+  items: [
+    { name: "商品 A", price: 10.00 },
+    { name: "商品 B", price: 20.00 }
+  ],
+  total: 30.00
 };
 
-// --- 关键修复：样式转换逻辑 ---
-const convertStyle = (styleObj, scale, assets) => {
-  if (!styleObj) return {};
-  const newStyle = { ...styleObj };
-  
-  // 1. 字体处理: pt -> px
-  if (typeof newStyle.fontSize === 'number') {
-    newStyle.fontSize = `${newStyle.fontSize * PT_TO_PX * scale}px`;
-  }
-  
-  // 2. 空间距离处理: mm -> px
-  ['borderRadius', 'padding', 'borderWidth', 'top', 'left', 'right', 'bottom'].forEach(prop => {
-     if (typeof newStyle[prop] === 'number') {
-        newStyle[prop] = `${newStyle[prop] * MM_TO_PX * scale}px`;
-     }
-  });
+export default function DeepPrintStudio() {
+  // Typst 代码和数据状态
+  const [code, setCode] = useState(DEFAULT_CODE);
+  const [data, setData] = useState(DEFAULT_DATA);
+  const [dataInput, setDataInput] = useState(JSON.stringify(DEFAULT_DATA, null, 2));
+  const [dataError, setDataError] = useState(null);
 
-  // 3. 线宽处理: pt -> px (通常)
-  if (typeof newStyle.strokeWidth === 'number') {
-     newStyle.strokeWidth = `${newStyle.strokeWidth * PT_TO_PX * scale}px`;
-  }
-  
-  if (newStyle.fontFamily && newStyle.fontFamily.startsWith('ref:')) {
-    newStyle.fontFamily = resolveAsset(newStyle.fontFamily, assets);
-  }
-  return newStyle;
-};
-
-// --- 主应用组件 ---
-export default function DeepPrintChatStudio() {
-  const [messages, setMessages] = useState([
-    { 
-      id: 1, 
-      role: 'assistant', 
-      text: "你好！我是 DeepPrint 排版助手。\n请告诉我你想设计什么？",
-      template: null 
-    }
-  ]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [sessionId] = useState(generateUUID());
-  
-  const [activeTemplate, setActiveTemplate] = useState(null);
-  const [mockData, setMockData] = useState(JSON.stringify(DEFAULT_MOCK_DATA, null, 2));
-  const [scale, setScale] = useState(1.0);
-  const [rightPanelTab, setRightPanelTab] = useState('preview'); 
+  // UI 状态
+  const [showChat, setShowChat] = useState(true);
+  const [activeTab, setActiveTab] = useState('editor'); // 'editor' | 'preview' | 'data'
   const messagesEndRef = useRef(null);
 
+  // AI Chat
+  const { messages, input, setInput, handleSubmit, isLoading, error: chatError } = useChat({
+    api: '/api/generate',
+    onFinish: (message) => {
+      // AI 完成后，提取 Typst 代码
+      if (message.role === 'assistant' && message.content) {
+        // 移除可能的 markdown 代码块标记
+        let typstCode = message.content;
+        if (typstCode.includes('```typst')) {
+          typstCode = typstCode.split('```typst')[1].split('```')[0];
+        } else if (typstCode.includes('```')) {
+          typstCode = typstCode.split('```')[1].split('```')[0];
+        }
+        setCode(typstCode.trim());
+        setActiveTab('preview');
+      }
+    }
+  });
+
+  // 自动滚动到最新消息
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    
-    const userMsg = { id: Date.now(), role: 'user', text: input };
-    setMessages(prev => [...prev, userMsg]);
-    setInput("");
-    setIsLoading(true);
-
+  // 处理数据 JSON 输入
+  const handleDataChange = useCallback((value) => {
+    setDataInput(value);
     try {
-      const response = await fetch('http://localhost:8888/api/layout/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain', 'X-Session-Id': sessionId },
-        body: input
-      });
-
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
-      
-      const responseText = await response.text();
-      let jsonPart = responseText;
-      if (responseText.includes("```json")) {
-        jsonPart = responseText.split("```json")[1].split("```")[0];
-      } else if (responseText.includes("```")) {
-        jsonPart = responseText.split("```")[1].split("```")[0];
-      }
-
-      const parsedTemplate = JSON.parse(jsonPart);
-      const autoData = generateAutoMockData(parsedTemplate);
-      setMockData(autoData); 
-
-      const aiMsg = { 
-        id: Date.now() + 1, 
-        role: 'assistant', 
-        text: "设计已优化。字号已校正，Mock 数据已自动补全。",
-        template: parsedTemplate 
-      };
-
-      setMessages(prev => [...prev, aiMsg]);
-      setActiveTemplate(parsedTemplate);
-      if (rightPanelTab !== 'preview') setRightPanelTab('preview');
-
-    } catch (e) {
-      const errorMsg = { 
-        id: Date.now() + 1, 
-        role: 'assistant', 
-        text: `Error: ${e.message}`,
-        isError: true
-      };
-      setMessages(prev => [...prev, errorMsg]);
-    } finally {
-      setIsLoading(false);
+      const parsed = JSON.parse(value);
+      setData(parsed);
+      setDataError(null);
+    } catch (err) {
+      setDataError('JSON 格式错误');
     }
-  };
+  }, []);
 
   return (
-    <div className="flex h-screen bg-gray-100 font-sans overflow-hidden text-slate-800">
-      
-      {/* 左侧：聊天区域 */}
-      <div className="w-[400px] flex flex-col bg-white border-r shadow-sm z-10 flex-shrink-0">
-        <div className="h-14 border-b flex items-center px-4 gap-2 bg-slate-50">
-          <Bot className="text-indigo-600" />
-          <span className="font-bold text-gray-700">DeepPrint Copilot</span>
-          <span className="text-[10px] text-gray-400 font-mono ml-auto">ID: {sessionId.substring(0,4)}</span>
+    <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
+      {/* 左侧：Chat Panel */}
+      {showChat && (
+        <div className="w-[360px] flex flex-col bg-slate-800 border-r border-slate-700 flex-shrink-0">
+          {/* Header */}
+          <div className="h-14 border-b border-slate-700 flex items-center px-4 gap-3 bg-slate-800/50">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600">
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <h1 className="font-semibold text-sm">DeepPrint Copilot</h1>
+              <p className="text-[10px] text-slate-400">Typst AI 排版助手</p>
+            </div>
+            <button
+              onClick={() => setShowChat(false)}
+              className="ml-auto p-1.5 rounded hover:bg-slate-700 text-slate-400"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {messages.length === 0 && (
+              <div className="text-center text-slate-400 py-8">
+                <Bot size={48} className="mx-auto mb-4 opacity-30" />
+                <p className="text-sm">描述你想要的排版设计</p>
+                <p className="text-xs mt-1 opacity-60">例如: "生成一个餐厅小票模板"</p>
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.role === 'user'
+                  ? 'bg-indigo-600 text-white rounded-tr-sm'
+                  : 'bg-slate-700 text-slate-100 rounded-tl-sm'
+                  }`}>
+                  {msg.role === 'assistant' ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-slate-300">
+                        <FileCode size={14} />
+                        <span>Typst 代码已生成</span>
+                      </div>
+                      <pre className="text-xs bg-slate-800 rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
+                        {msg.content.substring(0, 300)}
+                        {msg.content.length > 300 && '...'}
+                      </pre>
+                    </div>
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="bg-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-indigo-400" />
+                  <span className="text-sm text-slate-300">生成中...</span>
+                </div>
+              </div>
+            )}
+
+            {chatError && (
+              <div className="flex justify-start">
+                <div className="bg-red-900/50 border border-red-700 rounded-2xl rounded-tl-sm px-4 py-3">
+                  <p className="text-sm text-red-300">错误: {chatError.message}</p>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <form onSubmit={handleSubmit} className="p-4 border-t border-slate-700">
+            <div className="relative">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="描述你的排版需求..."
+                className="w-full pl-4 pr-12 py-3 bg-slate-700 rounded-xl text-sm placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                disabled={isLoading}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                className="absolute right-2 top-2 p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                <Send size={16} />
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 右侧：工作区 */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Toolbar */}
+        <div className="h-14 bg-slate-800 border-b border-slate-700 flex items-center px-4 gap-4">
+          {!showChat && (
+            <button
+              onClick={() => setShowChat(true)}
+              className="p-2 rounded hover:bg-slate-700 text-slate-400"
+            >
+              <PanelLeft size={18} />
+            </button>
+          )}
+
+          {/* Tabs */}
+          <div className="flex gap-1 bg-slate-700/50 p-1 rounded-lg">
+            <button
+              onClick={() => setActiveTab('editor')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'editor'
+                ? 'bg-slate-600 text-white shadow'
+                : 'text-slate-400 hover:text-white'
+                }`}
+            >
+              <Code2 size={14} />
+              编辑器
+            </button>
+            <button
+              onClick={() => setActiveTab('preview')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'preview'
+                ? 'bg-slate-600 text-white shadow'
+                : 'text-slate-400 hover:text-white'
+                }`}
+            >
+              <Eye size={14} />
+              预览
+            </button>
+            <button
+              onClick={() => setActiveTab('data')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'data'
+                ? 'bg-slate-600 text-white shadow'
+                : 'text-slate-400 hover:text-white'
+                }`}
+            >
+              <Database size={14} />
+              数据
+              {dataError && <span className="w-2 h-2 rounded-full bg-red-500" />}
+            </button>
+          </div>
+
+          <div className="ml-auto text-xs text-slate-500">
+            DeepPrint v2.0 · Typst
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
-                msg.role === 'user' 
-                  ? 'bg-indigo-600 text-white rounded-tr-none' 
-                  : msg.isError 
-                    ? 'bg-red-50 text-red-600 border border-red-100 rounded-tl-none'
-                    : 'bg-white border border-gray-100 text-gray-700 rounded-tl-none'
-              }`}>
-                <div className="whitespace-pre-wrap text-sm">{msg.text}</div>
-                
-                {msg.template && (
-                  <div 
-                    className={`mt-3 border rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all ${activeTemplate === msg.template ? 'ring-2 ring-indigo-500' : 'border-gray-200'}`}
-                    onClick={() => {
-                        setActiveTemplate(msg.template);
-                        setMockData(generateAutoMockData(msg.template));
-                    }}
-                  >
-                    <div className="bg-gray-100 p-2 h-[120px] relative overflow-hidden flex items-center justify-center">
-                       <div className="scale-[0.25] origin-center">
-                         <Renderer template={msg.template} scale={1} data={JSON.parse(mockData)} isThumbnail={true} />
-                       </div>
-                    </div>
-                    <div className="px-3 py-2 bg-gray-50 text-xs font-medium text-gray-600 flex justify-between items-center border-t">
-                      <span>{msg.template.meta?.name || "布局"}</span>
-                      <ArrowRight size={12} />
-                    </div>
-                  </div>
+        {/* Content Area */}
+        <div className="flex-1 overflow-hidden relative">
+          {/* Editor Panel */}
+          {activeTab === 'editor' && (
+            <Editor
+              height="100%"
+              defaultLanguage="markdown"
+              theme="vs-dark"
+              value={code}
+              onChange={(value) => setCode(value || '')}
+              options={{
+                fontSize: 14,
+                fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
+                minimap: { enabled: false },
+                lineNumbers: 'on',
+                wordWrap: 'on',
+                padding: { top: 16 },
+                scrollBeyondLastLine: false,
+              }}
+            />
+          )}
+
+          {/* Preview Panel */}
+          {activeTab === 'preview' && (
+            <div className="absolute inset-0 bg-slate-300 overflow-auto">
+              <TypstPreview code={code} data={data} />
+            </div>
+          )}
+
+          {/* Data Panel */}
+          {activeTab === 'data' && (
+            <div className="absolute inset-0 flex flex-col">
+              <div className="p-4 bg-slate-800 border-b border-slate-700">
+                <h3 className="text-sm font-medium">业务数据 (JSON)</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  数据将通过 <code className="bg-slate-700 px-1 rounded">sys.inputs.payload</code> 注入到模板中
+                </p>
+                {dataError && (
+                  <p className="text-xs text-red-400 mt-2 flex items-center gap-1">
+                    <AlertCircle size={12} />
+                    {dataError}
+                  </p>
                 )}
               </div>
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex justify-start animate-pulse">
-               <div className="bg-gray-200 rounded-2xl rounded-tl-none px-4 py-3 text-sm text-gray-500">
-                  Thinking...
-               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="p-4 bg-white border-t">
-          <div className="relative">
-            <input
-              type="text"
-              className="w-full pl-4 pr-12 py-3 bg-gray-100 border-transparent focus:bg-white focus:border-indigo-500 rounded-xl outline-none transition-all text-sm"
-              placeholder="输入需求..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            />
-            <button 
-              onClick={handleSend}
-              disabled={isLoading}
-              className={`absolute right-2 top-2 p-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-all ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <Send size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 右侧：工作台 */}
-      <div className="flex-1 flex flex-col bg-slate-200/50 min-w-0">
-        <div className="h-14 bg-white border-b flex items-center justify-between px-6 shadow-sm">
-          <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-            <button onClick={() => setRightPanelTab('preview')} className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 ${rightPanelTab === 'preview' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>
-              <Layout size={14} /> 预览
-            </button>
-            <button onClick={() => setRightPanelTab('json')} className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 ${rightPanelTab === 'json' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>
-              <FileJson size={14} /> JSON
-            </button>
-            <button onClick={() => setRightPanelTab('data')} className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 ${rightPanelTab === 'data' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>
-              <Database size={14} /> Data
-            </button>
-          </div>
-          
-          {rightPanelTab === 'preview' && (
-            <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
-              <button onClick={() => setScale(s => Math.max(0.5, s - 0.2))} className="p-1.5 hover:bg-white rounded text-gray-600"><ZoomOut size={16}/></button>
-              <span className="text-xs font-mono w-10 text-center">{Math.round(scale * 100)}%</span>
-              <button onClick={() => setScale(s => Math.min(3, s + 0.2))} className="p-1.5 hover:bg-white rounded text-gray-600"><ZoomIn size={16}/></button>
+              <div className="flex-1">
+                <Editor
+                  height="100%"
+                  defaultLanguage="json"
+                  theme="vs-dark"
+                  value={dataInput}
+                  onChange={(value) => handleDataChange(value || '')}
+                  options={{
+                    fontSize: 14,
+                    fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
+                    minimap: { enabled: false },
+                    lineNumbers: 'on',
+                    wordWrap: 'on',
+                    padding: { top: 16 },
+                    scrollBeyondLastLine: false,
+                  }}
+                />
+              </div>
             </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-hidden relative">
-          {rightPanelTab === 'preview' && (
-            <div className="absolute inset-0 overflow-auto flex items-center justify-center p-10 bg-slate-300">
-              {activeTemplate ? (
-                <Renderer template={activeTemplate} scale={scale} data={JSON.parse(mockData)} />
-              ) : (
-                <div className="flex flex-col items-center text-gray-400 gap-2">
-                   <Layout size={48} className="opacity-20"/>
-                   <span>请在左侧输入需求生成模板</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {rightPanelTab === 'json' && (
-            <textarea
-              className="w-full h-full p-6 font-mono text-xs bg-slate-900 text-green-400 resize-none outline-none"
-              value={activeTemplate ? JSON.stringify(activeTemplate, null, 2) : "// 暂无数据"}
-              readOnly
-            />
-          )}
-
-          {rightPanelTab === 'data' && (
-             <textarea
-               className="w-full h-full p-6 font-mono text-xs bg-white text-slate-700 resize-none outline-none"
-               value={mockData}
-               onChange={(e) => setMockData(e.target.value)}
-               placeholder="输入 JSON 数据..."
-             />
-          )}
-        </div>
-        
-        <div className="h-8 bg-white border-t px-4 flex items-center justify-between text-[10px] text-gray-400">
-           <span>{activeTemplate?.canvas ? `${activeTemplate.canvas.width}x${activeTemplate.canvas.height} ${activeTemplate.canvas.unit}` : 'Ready'}</span>
-           <span>DeepPrint v2.3</span>
+        {/* Status Bar */}
+        <div className="h-8 bg-slate-800 border-t border-slate-700 px-4 flex items-center justify-between text-[10px] text-slate-500">
+          <span>Typst WASM Engine</span>
+          <span>{code.length} chars</span>
         </div>
       </div>
     </div>

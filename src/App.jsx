@@ -33,17 +33,69 @@ const universeTomlFiles = import.meta.glob('./universe/**/typst.toml', {
   eager: true
 });
 
-// 合并所有文件并转换为虚拟路径映射
+// 加载所有 .js 脚本文件 (如 cades 包需要的 qrcode.js)
+const universeJsFiles = import.meta.glob('./universe/**/*.js', {
+  query: '?raw',
+  import: 'default',
+  eager: true
+});
+
+// 加载所有 .wasm 二进制文件 (获取 URL，稍后异步 fetch)
+const universeWasmUrls = import.meta.glob('./universe/**/*.wasm', {
+  query: '?url',
+  import: 'default',
+  eager: true
+});
+
+// 合并文本文件并转换为虚拟路径映射
 // 注意: 使用 /@memory/packages/ 前缀，这是 MemoryAccessModel 要求的格式
-const universePackages = Object.entries({ ...universeTypFiles, ...universeTomlFiles }).reduce((acc, [filePath, content]) => {
+const universeTextPackages = Object.entries({ ...universeTypFiles, ...universeTomlFiles, ...universeJsFiles }).reduce((acc, [filePath, content]) => {
   const match = filePath.match(/\.?\/universe\/(.+)$/);
   if (match) {
-    // 使用 /@memory/packages/ 前缀
     const virtualPath = `/@memory/packages/${match[1]}`;
     acc[virtualPath] = content;
   }
   return acc;
 }, {});
+
+// 构建 WASM 文件的虚拟路径映射 (值是 URL，需要异步加载)
+const universeWasmPaths = Object.entries(universeWasmUrls).reduce((acc, [filePath, url]) => {
+  const match = filePath.match(/\.?\/universe\/(.+)$/);
+  if (match) {
+    const virtualPath = `/@memory/packages/${match[1]}`;
+    acc[virtualPath] = url;
+  }
+  return acc;
+}, {});
+
+// 异步加载所有 WASM 文件并返回合并后的包数据
+let wasmLoadPromise = null;
+async function loadWasmPackages() {
+  // 只加载一次
+  if (wasmLoadPromise) return wasmLoadPromise;
+
+  wasmLoadPromise = (async () => {
+    const wasmData = {};
+    for (const [virtualPath, url] of Object.entries(universeWasmPaths)) {
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          const buffer = await response.arrayBuffer();
+          wasmData[virtualPath] = new Uint8Array(buffer);
+          console.log(`📦 已加载 WASM: ${virtualPath}`);
+        }
+      } catch (err) {
+        console.warn(`⚠️ 无法加载 WASM: ${virtualPath}`, err);
+      }
+    }
+    return wasmData;
+  })();
+
+  return wasmLoadPromise;
+}
+
+// 初始包数据 (文本文件)，WASM 文件将在运行时异步合并
+let universePackages = { ...universeTextPackages };
 
 // 🌌 自定义 PackageRegistry - 从打包的 bundle 中解析 @preview 包
 class BundledPackageRegistry {
@@ -93,6 +145,23 @@ class BundledPackageRegistry {
 // 🌌 模块级单例 - 避免组件重新挂载时重复加载包
 const sharedAccessModel = new MemoryAccessModel();
 const sharedPackageRegistry = new BundledPackageRegistry(universePackages, sharedAccessModel);
+
+// 确保 WASM 文件已加载 (只加载一次)
+let wasmLoaded = false;
+async function ensureWasmLoaded() {
+  if (wasmLoaded) return;
+
+  const wasmData = await loadWasmPackages();
+  // 合并 WASM 数据到 universePackages
+  Object.assign(universePackages, wasmData);
+  // 同时更新 PackageRegistry 的引用
+  sharedPackageRegistry.packages = universePackages;
+  wasmLoaded = true;
+
+  if (Object.keys(wasmData).length > 0) {
+    console.log('📦 WASM 文件合并完成:', Object.keys(wasmData));
+  }
+}
 
 // 将 JSON 值转换为 Typst 字面量语法
 const jsonToTypst = (value) => {
@@ -193,6 +262,9 @@ const TypstPreview = ({ code, data }) => {
           }
           return;
         }
+
+        // 确保 WASM 文件已加载 (如 jogs.wasm)
+        await ensureWasmLoaded();
 
         // 使用模块级共享实例
         await comp.init({

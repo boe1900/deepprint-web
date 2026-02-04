@@ -90,6 +90,10 @@ class BundledPackageRegistry {
   }
 }
 
+// 🌌 模块级单例 - 避免组件重新挂载时重复加载包
+const sharedAccessModel = new MemoryAccessModel();
+const sharedPackageRegistry = new BundledPackageRegistry(universePackages, sharedAccessModel);
+
 // 将 JSON 值转换为 Typst 字面量语法
 const jsonToTypst = (value) => {
   if (value === null || value === undefined) {
@@ -190,18 +194,15 @@ const TypstPreview = ({ code, data }) => {
           return;
         }
 
-        // 创建 MemoryAccessModel 和 BundledPackageRegistry
-        const accessModel = new MemoryAccessModel();
-        const packageRegistry = new BundledPackageRegistry(universePackages, accessModel);
-
+        // 使用模块级共享实例
         await comp.init({
           getModule: () => ({
             module_or_path: fetch('/assets/typst_ts_web_compiler_bg.wasm').then(res => res.arrayBuffer())
           }),
           beforeBuild: [
             preloadRemoteFonts([fontData]),
-            initOptions.withAccessModel(accessModel),
-            initOptions.withPackageRegistry(packageRegistry)
+            initOptions.withAccessModel(sharedAccessModel),
+            initOptions.withPackageRegistry(sharedPackageRegistry)
           ]
         });
 

@@ -1,0 +1,8 @@
+[
+    {
+        "name": "codetastic",
+        "version": "0.2.2",
+        "description": "强大的条码和二维码库 (推荐)",
+        "source": "github:jneug/typst-codetastic#v0.2.2"
+    }
+]

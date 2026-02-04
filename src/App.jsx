@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { TypstDocument } from '@myriaddreamin/typst.react';
-import { createTypstCompiler, preloadRemoteFonts } from '@myriaddreamin/typst.ts';
+import { createTypstCompiler, preloadRemoteFonts, MemoryAccessModel, initOptions } from '@myriaddreamin/typst.ts';
 import { useChat } from 'ai/react';
 import Editor from '@monaco-editor/react';
 import {
@@ -11,6 +11,84 @@ import {
   Sun, Moon, Monitor
 } from 'lucide-react';
 import { useTheme, THEMES } from './hooks/useTheme';
+
+// =============================================================================
+// 🌌 Typst Universe 插件预加载 (编译时静态分析)
+// =============================================================================
+// 使用 Vite 的 glob 功能在编译时扫描并打包所有文件
+// eager: true - 同步加载，打包进 bundle
+// query: '?raw' - 作为纯文本字符串导入
+
+// 加载所有 .typ 源文件
+const universeTypFiles = import.meta.glob('./universe/**/*.typ', {
+  query: '?raw',
+  import: 'default',
+  eager: true
+});
+
+// 加载所有 typst.toml 包清单文件
+const universeTomlFiles = import.meta.glob('./universe/**/typst.toml', {
+  query: '?raw',
+  import: 'default',
+  eager: true
+});
+
+// 合并所有文件并转换为虚拟路径映射
+// 注意: 使用 /@memory/packages/ 前缀，这是 MemoryAccessModel 要求的格式
+const universePackages = Object.entries({ ...universeTypFiles, ...universeTomlFiles }).reduce((acc, [filePath, content]) => {
+  const match = filePath.match(/\.?\/universe\/(.+)$/);
+  if (match) {
+    // 使用 /@memory/packages/ 前缀
+    const virtualPath = `/@memory/packages/${match[1]}`;
+    acc[virtualPath] = content;
+  }
+  return acc;
+}, {});
+
+// 🌌 自定义 PackageRegistry - 从打包的 bundle 中解析 @preview 包
+class BundledPackageRegistry {
+  constructor(packages, accessModel) {
+    this.packages = packages;
+    this.am = accessModel;
+    this.resolved = new Set();
+  }
+
+  resolve(spec, context) {
+    // 只处理 preview 命名空间
+    if (spec.namespace !== 'preview') {
+      return undefined;
+    }
+
+    // 使用 /@memory/packages/ 前缀
+    const packageDir = `/@memory/packages/preview/${spec.name}/${spec.version}`;
+
+    // 检查是否已经解析过
+    if (this.resolved.has(packageDir)) {
+      return packageDir;
+    }
+
+    // 检查包是否存在于 bundle 中
+    const tomlPath = `${packageDir}/typst.toml`;
+    if (!this.packages[tomlPath]) {
+      console.warn(`📦 包 @preview/${spec.name}:${spec.version} 未在本地 Universe 中找到`);
+      return undefined;
+    }
+
+    // 将包文件注册到 AccessModel
+    const encoder = new TextEncoder();
+    for (const [path, content] of Object.entries(this.packages)) {
+      if (path.startsWith(packageDir)) {
+        // 将字符串内容转换为 Uint8Array
+        const data = typeof content === 'string' ? encoder.encode(content) : content;
+        this.am.insertFile(path, data, new Date());
+      }
+    }
+
+    this.resolved.add(packageDir);
+    console.log(`📦 已加载包: @preview/${spec.name}:${spec.version}`);
+    return packageDir;
+  }
+}
 
 // 将 JSON 值转换为 Typst 字面量语法
 const jsonToTypst = (value) => {
@@ -112,14 +190,22 @@ const TypstPreview = ({ code, data }) => {
           return;
         }
 
+        // 创建 MemoryAccessModel 和 BundledPackageRegistry
+        const accessModel = new MemoryAccessModel();
+        const packageRegistry = new BundledPackageRegistry(universePackages, accessModel);
+
         await comp.init({
           getModule: () => ({
             module_or_path: fetch('/assets/typst_ts_web_compiler_bg.wasm').then(res => res.arrayBuffer())
           }),
           beforeBuild: [
-            preloadRemoteFonts([fontData])
+            preloadRemoteFonts([fontData]),
+            initOptions.withAccessModel(accessModel),
+            initOptions.withPackageRegistry(packageRegistry)
           ]
         });
+
+        console.log('📦 Universe 包注册完成，可用包:', Object.keys(universePackages).filter(p => p.endsWith('typst.toml')).map(p => p.replace('/@memory/packages/', '@').replace('/typst.toml', '').replace('/', ':')));
 
         if (mounted) {
           setCompiler(comp);
@@ -165,8 +251,17 @@ const TypstPreview = ({ code, data }) => {
           setError(null);
         } else {
           console.warn('Artifact is empty!');
-          if (compileResult.diagnostics) {
-            console.log('Diagnostics:', compileResult.diagnostics);
+          if (compileResult.diagnostics && compileResult.diagnostics.length > 0) {
+            // 详细打印每个诊断信息
+            compileResult.diagnostics.forEach((d, i) => {
+              console.error(`编译错误 #${i + 1}:`, d);
+            });
+            // 将第一个错误显示给用户
+            const firstError = compileResult.diagnostics[0];
+            const errorMsg = typeof firstError === 'string'
+              ? firstError
+              : (firstError.message || JSON.stringify(firstError));
+            setError(`编译错误: ${errorMsg}`);
           }
         }
       } catch (err) {

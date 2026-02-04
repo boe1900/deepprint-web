@@ -6,7 +6,8 @@ import Editor from '@monaco-editor/react';
 import {
   Send, Bot, Code2, Eye, Database,
   PanelLeftClose, PanelLeft, Loader2,
-  FileCode, Sparkles, AlertCircle
+  FileCode, Sparkles, AlertCircle,
+  ZoomIn, ZoomOut, RotateCcw, Maximize2
 } from 'lucide-react';
 
 // 将 JSON 值转换为 Typst 字面量语法
@@ -43,12 +44,44 @@ TypstDocument.setWasmModuleInitOptions({
   })
 });
 
-// Typst WASM 渲染器组件
+// Typst WASM 渲染器组件 - PDF 阅读器风格预览
 const TypstPreview = ({ code, data }) => {
   const [compiler, setCompiler] = useState(null);
   const [artifact, setArtifact] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // 缩放状态
+  const [zoom, setZoom] = useState(1); // 100% = 1
+  const containerRef = useRef(null);
+  const documentRef = useRef(null);
+
+  // 缩放控制函数
+  const zoomIn = useCallback(() => {
+    setZoom(prev => Math.min(prev + 0.25, 3)); // 最大 300%
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    setZoom(prev => Math.max(prev - 0.25, 0.25)); // 最小 25%
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setZoom(1); // 重置为 100%
+  }, []);
+
+  const fitToWidth = useCallback(() => {
+    if (!containerRef.current || !documentRef.current) return;
+
+    // 获取容器可用宽度（减去 padding）
+    const containerWidth = containerRef.current.clientWidth - 64; // 32px padding each side
+    // 获取文档原始宽度
+    const documentWidth = documentRef.current.scrollWidth / zoom;
+
+    if (documentWidth > 0) {
+      const newZoom = Math.min(containerWidth / documentWidth, 2); // 最大适应到 200%
+      setZoom(Math.max(newZoom, 0.25));
+    }
+  }, [zoom]);
 
   // 初始化编译器
   useEffect(() => {
@@ -147,29 +180,119 @@ const TypstPreview = ({ code, data }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-full bg-slate-200 text-gray-500">
         <Loader2 className="animate-spin mr-2" size={20} />
         <span>加载 Typst 引擎...</span>
       </div>
     );
   }
 
+  // 获取设备像素比，用于高清渲染
+  const pixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
   return (
-    <div className="w-full h-full overflow-auto p-4 bg-white">
-      {error && (
-        <div className="absolute top-4 right-4 bg-red-100 text-red-600 p-2 rounded shadow text-xs flex items-center gap-2 z-10">
-          <AlertCircle size={14} />
-          {error}
+    <div className="w-full h-full flex flex-col bg-slate-200">
+      {/* 缩放工具栏 */}
+      <div className="flex-shrink-0 h-10 bg-slate-700 border-b border-slate-600 flex items-center justify-center gap-1 px-4">
+        <button
+          onClick={zoomOut}
+          className="p-1.5 rounded hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+          title="缩小"
+        >
+          <ZoomOut size={16} />
+        </button>
+
+        <div className="px-3 py-1 bg-slate-800 rounded text-xs text-slate-300 min-w-[60px] text-center font-mono">
+          {Math.round(zoom * 100)}%
         </div>
-      )}
-      {artifact && (
-        <div style={{ width: '100%', minHeight: '200px' }}>
-          <TypstDocument
-            fill="#ffffff"
-            artifact={artifact}
-          />
-        </div>
-      )}
+
+        <button
+          onClick={zoomIn}
+          className="p-1.5 rounded hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+          title="放大"
+        >
+          <ZoomIn size={16} />
+        </button>
+
+        <div className="w-px h-5 bg-slate-600 mx-2" />
+
+        <button
+          onClick={resetZoom}
+          className="p-1.5 rounded hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+          title="重置为 100%"
+        >
+          <RotateCcw size={16} />
+        </button>
+
+        <button
+          onClick={fitToWidth}
+          className="p-1.5 rounded hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+          title="适应宽度"
+        >
+          <Maximize2 size={16} />
+        </button>
+      </div>
+
+      {/* 预览区域 - 可滚动 */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto p-8"
+        style={{
+          backgroundImage: `
+            radial-gradient(circle, rgba(0,0,0,0.05) 1px, transparent 1px)
+          `,
+          backgroundSize: '20px 20px'
+        }}
+      >
+        {/* 错误提示 */}
+        {error && (
+          <div className="fixed top-16 right-4 bg-red-100 text-red-600 p-3 rounded-lg shadow-lg text-xs flex items-center gap-2 z-50 border border-red-200">
+            <AlertCircle size={14} />
+            {error}
+          </div>
+        )}
+
+        {/* 文档容器 - 纸张效果 */}
+        {artifact && (
+          <div className="flex justify-center">
+            <div
+              ref={documentRef}
+              className="bg-white"
+              style={{
+                transform: `scale(${zoom})`,
+                transformOrigin: 'top center',
+                // 给文档一个基础宽度，80mm ≈ 302px (at 96 DPI)
+                minWidth: '302px',
+                // 使用 inline-block 让容器能根据内容自适应
+                display: 'inline-block',
+                // 纸张阴影效果
+                boxShadow: `
+                  0 4px 6px -1px rgba(0, 0, 0, 0.1),
+                  0 10px 15px -3px rgba(0, 0, 0, 0.1),
+                  0 20px 25px -5px rgba(0, 0, 0, 0.1),
+                  0 25px 50px -12px rgba(0, 0, 0, 0.25)
+                `
+              }}
+            >
+              <TypstDocument
+                fill="#ffffff"
+                artifact={artifact}
+                pixelPerPt={pixelRatio * 2}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 无内容时的占位 */}
+        {!artifact && !error && (
+          <div className="flex items-center justify-center h-full text-slate-400">
+            <div className="text-center">
+              <Eye size={48} className="mx-auto mb-4 opacity-30" />
+              <p className="text-sm">等待编译...</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

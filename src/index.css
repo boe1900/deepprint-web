@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+/* 
+ * 主题切换支持 - 使用 selector 策略
+ * 当 html 元素有 .dark 类时启用深色模式
+ */
+@variant dark (&:where(.dark, .dark *));

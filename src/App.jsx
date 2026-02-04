@@ -7,8 +7,10 @@ import {
   Send, Bot, Code2, Eye, Database,
   PanelLeftClose, PanelLeft, Loader2,
   FileCode, Sparkles, AlertCircle,
-  ZoomIn, ZoomOut, RotateCcw, Maximize2
+  ZoomIn, ZoomOut, RotateCcw, Maximize2,
+  Sun, Moon, Monitor
 } from 'lucide-react';
+import { useTheme, THEMES } from './hooks/useTheme';
 
 // 将 JSON 值转换为 Typst 字面量语法
 const jsonToTypst = (value) => {
@@ -340,6 +342,13 @@ export default function DeepPrintStudio() {
   const [activeTab, setActiveTab] = useState('editor'); // 'editor' | 'preview' | 'data'
   const messagesEndRef = useRef(null);
 
+  // 主题
+  const { theme, resolvedTheme, cycleTheme } = useTheme();
+
+  // 获取主题图标
+  const ThemeIcon = theme === THEMES.SYSTEM ? Monitor : (theme === THEMES.LIGHT ? Sun : Moon);
+  const themeLabel = theme === THEMES.SYSTEM ? '跟随系统' : (theme === THEMES.LIGHT ? '浅色' : '深色');
+
   // AI Chat
   const { messages, input, setInput, handleSubmit, isLoading, error: chatError } = useChat({
     api: '/api/generate',
@@ -377,22 +386,22 @@ export default function DeepPrintStudio() {
   }, []);
 
   return (
-    <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
+    <div className="flex h-screen bg-white dark:bg-slate-900 text-slate-900 dark:text-white overflow-hidden transition-colors">
       {/* 左侧：Chat Panel */}
       {showChat && (
-        <div className="w-[360px] flex flex-col bg-slate-800 border-r border-slate-700 flex-shrink-0">
+        <div className="w-[360px] flex flex-col bg-slate-100 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex-shrink-0">
           {/* Header */}
-          <div className="h-14 border-b border-slate-700 flex items-center px-4 gap-3 bg-slate-800/50">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600">
+          <div className="h-14 border-b border-slate-200 dark:border-slate-700 flex items-center px-4 gap-3 bg-slate-50 dark:bg-slate-800/50">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
               <Sparkles size={18} />
             </div>
             <div>
               <h1 className="font-semibold text-sm">DeepPrint Copilot</h1>
-              <p className="text-[10px] text-slate-400">Typst AI 排版助手</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Typst AI 排版助手</p>
             </div>
             <button
               onClick={() => setShowChat(false)}
-              className="ml-auto p-1.5 rounded hover:bg-slate-700 text-slate-400"
+              className="ml-auto p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
             >
               <PanelLeftClose size={18} />
             </button>
@@ -401,7 +410,7 @@ export default function DeepPrintStudio() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 && (
-              <div className="text-center text-slate-400 py-8">
+              <div className="text-center text-slate-500 dark:text-slate-400 py-8">
                 <Bot size={48} className="mx-auto mb-4 opacity-30" />
                 <p className="text-sm">描述你想要的排版设计</p>
                 <p className="text-xs mt-1 opacity-60">例如: "生成一个餐厅小票模板"</p>
@@ -415,15 +424,15 @@ export default function DeepPrintStudio() {
               >
                 <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.role === 'user'
                   ? 'bg-indigo-600 text-white rounded-tr-sm'
-                  : 'bg-slate-700 text-slate-100 rounded-tl-sm'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-tl-sm'
                   }`}>
                   {msg.role === 'assistant' ? (
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs text-slate-300">
+                      <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
                         <FileCode size={14} />
                         <span>Typst 代码已生成</span>
                       </div>
-                      <pre className="text-xs bg-slate-800 rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
+                      <pre className="text-xs bg-slate-300 dark:bg-slate-800 rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
                         {msg.content.substring(0, 300)}
                         {msg.content.length > 300 && '...'}
                       </pre>
@@ -437,9 +446,9 @@ export default function DeepPrintStudio() {
 
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
-                  <Loader2 size={16} className="animate-spin text-indigo-400" />
-                  <span className="text-sm text-slate-300">生成中...</span>
+                <div className="bg-slate-200 dark:bg-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-indigo-500" />
+                  <span className="text-sm text-slate-600 dark:text-slate-300">生成中...</span>
                 </div>
               </div>
             )}
@@ -456,14 +465,14 @@ export default function DeepPrintStudio() {
           </div>
 
           {/* Input */}
-          <form onSubmit={handleSubmit} className="p-4 border-t border-slate-700">
+          <form onSubmit={handleSubmit} className="p-4 border-t border-slate-200 dark:border-slate-700">
             <div className="relative">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="描述你的排版需求..."
-                className="w-full pl-4 pr-12 py-3 bg-slate-700 rounded-xl text-sm placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                className="w-full pl-4 pr-12 py-3 bg-slate-200 dark:bg-slate-700 rounded-xl text-sm placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                 disabled={isLoading}
               />
               <button
@@ -481,23 +490,23 @@ export default function DeepPrintStudio() {
       {/* 右侧：工作区 */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
-        <div className="h-14 bg-slate-800 border-b border-slate-700 flex items-center px-4 gap-4">
+        <div className="h-14 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center px-4 gap-4">
           {!showChat && (
             <button
               onClick={() => setShowChat(true)}
-              className="p-2 rounded hover:bg-slate-700 text-slate-400"
+              className="p-2 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
             >
               <PanelLeft size={18} />
             </button>
           )}
 
           {/* Tabs */}
-          <div className="flex gap-1 bg-slate-700/50 p-1 rounded-lg">
+          <div className="flex gap-1 bg-slate-200 dark:bg-slate-700/50 p-1 rounded-lg">
             <button
               onClick={() => setActiveTab('editor')}
               className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'editor'
-                ? 'bg-slate-600 text-white shadow'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
             >
               <Code2 size={14} />
@@ -506,8 +515,8 @@ export default function DeepPrintStudio() {
             <button
               onClick={() => setActiveTab('preview')}
               className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'preview'
-                ? 'bg-slate-600 text-white shadow'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
             >
               <Eye size={14} />
@@ -516,8 +525,8 @@ export default function DeepPrintStudio() {
             <button
               onClick={() => setActiveTab('data')}
               className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'data'
-                ? 'bg-slate-600 text-white shadow'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
             >
               <Database size={14} />
@@ -526,8 +535,18 @@ export default function DeepPrintStudio() {
             </button>
           </div>
 
-          <div className="ml-auto text-xs text-slate-500">
-            DeepPrint v2.0 · Typst
+          <div className="ml-auto flex items-center gap-3">
+            {/* 主题切换按钮 */}
+            <button
+              onClick={cycleTheme}
+              className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors"
+              title={themeLabel}
+            >
+              <ThemeIcon size={18} />
+            </button>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              DeepPrint v2.0
+            </span>
           </div>
         </div>
 
@@ -538,7 +557,7 @@ export default function DeepPrintStudio() {
             <Editor
               height="100%"
               defaultLanguage="markdown"
-              theme="vs-dark"
+              theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
               value={code}
               onChange={(value) => setCode(value || '')}
               options={{
@@ -555,7 +574,7 @@ export default function DeepPrintStudio() {
 
           {/* Preview Panel */}
           {activeTab === 'preview' && (
-            <div className="absolute inset-0 bg-slate-300 overflow-auto">
+            <div className="absolute inset-0 bg-slate-100 dark:bg-slate-300 overflow-auto">
               <TypstPreview code={code} data={data} />
             </div>
           )}
@@ -563,13 +582,13 @@ export default function DeepPrintStudio() {
           {/* Data Panel */}
           {activeTab === 'data' && (
             <div className="absolute inset-0 flex flex-col">
-              <div className="p-4 bg-slate-800 border-b border-slate-700">
+              <div className="p-4 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                 <h3 className="text-sm font-medium">业务数据 (JSON)</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  数据将通过 <code className="bg-slate-700 px-1 rounded">sys.inputs.payload</code> 注入到模板中
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  数据将通过 <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">sys.inputs.payload</code> 注入到模板中
                 </p>
                 {dataError && (
-                  <p className="text-xs text-red-400 mt-2 flex items-center gap-1">
+                  <p className="text-xs text-red-500 dark:text-red-400 mt-2 flex items-center gap-1">
                     <AlertCircle size={12} />
                     {dataError}
                   </p>
@@ -579,7 +598,7 @@ export default function DeepPrintStudio() {
                 <Editor
                   height="100%"
                   defaultLanguage="json"
-                  theme="vs-dark"
+                  theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
                   value={dataInput}
                   onChange={(value) => handleDataChange(value || '')}
                   options={{
@@ -598,7 +617,7 @@ export default function DeepPrintStudio() {
         </div>
 
         {/* Status Bar */}
-        <div className="h-8 bg-slate-800 border-t border-slate-700 px-4 flex items-center justify-between text-[10px] text-slate-500">
+        <div className="h-8 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-4 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
           <span>Typst WASM Engine</span>
           <span>{code.length} chars</span>
         </div>

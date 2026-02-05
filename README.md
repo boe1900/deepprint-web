@@ -14,3 +14,28 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+## Cloudflare Deployment
+
+This project is configured for deployment on Cloudflare Pages.
+
+### How to Deploy
+
+1.  **Login to Cloudflare**:
+    ```bash
+    npx wrangler login
+    ```
+
+2.  **Deploy**:
+    ```bash
+    npm run deploy
+    ```
+
+3.  **Environment Variables**:
+    After deployment, remember to set your `OPENAI_API_KEY` in the Cloudflare Pages dashboard under **Settings** -> **Environment Variables**. This is required for AI features.
+
+4.  **Local Preview**:
+    To preview the application locally with Cloudflare Functions:
+    ```bash
+    npm run preview
+    ```

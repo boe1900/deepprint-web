@@ -1,0 +1,6 @@
+name = "deepprint-web"
+compatibility_date = "2026-02-05"
+pages_build_output_dir = "./dist"
+
+[functions]
+directory = "functions"

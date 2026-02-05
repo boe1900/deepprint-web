@@ -466,33 +466,125 @@ const TypstPreview = ({ code, data }) => {
 
 // 默认 Typst 代码
 const DEFAULT_CODE = `
-// DeepPrint v2.0 - Typst Template
+// ==========================================
+// 1. 页面与字体设置 (80mm 热敏纸标准)
+// ==========================================
 #set page(width: 80mm, height: auto, margin: 5mm)
-#set text(size: 10pt, font: ("Noto Sans SC", "Arial"))
+// 优先使用中文字体，回退到 Arial
+#set text(font: ("Noto Sans SC", "Arial"), size: 10pt)
 
+// ==========================================
+// 2. 引入官方扩展包 (全能条码库)
+// ==========================================
+// 确保您已运行 npm run sync 下载了此包
+#import "@preview/tiaoma:0.3.0"
+
+// ==========================================
+// 3. 票据头部
+// ==========================================
 #align(center)[
-  #text(size: 16pt, weight: "bold")[Welcome to DeepPrint]
+  #text(1.5em, weight: "bold")[DeepPrint 智慧餐饮]
+  #v(0.5em)
+  #text(0.9em)[-- 收银小票 --]
+]
+
+#v(0.5em)
+#line(length: 100%, stroke: (dash: "dashed", thickness: 1pt))
+
+// ==========================================
+// 4. 订单基础信息 (Grid 布局)
+// ==========================================
+// 直接使用注入的 data 变量
+#grid(
+  columns: (1fr, auto), // 左侧撑满，右侧自适应
+  row-gutter: 0.8em,    // 行间距
+  [订单编号], [#text(font: "IBM Plex Mono")[#data.order_id]],
+  [打印时间], [#data.time],
+)
+
+#v(0.5em)
+#line(length: 100%, stroke: (dash: "dashed"))
+
+// ==========================================
+// 5. 商品列表
+// ==========================================
+#grid(
+  columns: (1fr, auto),
+  row-gutter: 0.6em,
+  // 表头
+  text(weight: "bold")[商品名称], text(weight: "bold")[金额],
+  
+  // 遍历 JSON 中的 items 数组
+  ..data.items.map(item => (
+    item.name, 
+    // 假设价格是数字，这里格式化一下，或者直接输出字符串
+    "¥" + str(item.price)
+  )).flatten()
+)
+
+#v(0.5em)
+#line(length: 100%, stroke: (thickness: 1pt))
+
+// ==========================================
+// 6. 金额汇总
+// ==========================================
+#align(right)[
+  #grid(
+    columns: 2,
+    gutter: 1em,
+    [应收金额:], 
+    text(1.4em, weight: "bold")[¥#data.total]
+  )
 ]
 
 #v(1em)
 
-This is a demo template. Edit the code on the left or use AI chat to generate new templates.
+// ==========================================
+// 7. 底部条码区 (使用 tiaoma 库)
+// ==========================================
+#align(center)[
+  // Code 128 条形码 (用于扫码枪回单)
+  #tiaoma.code128(data.order_id, height: 1.2cm)
+  #v(0.2em)
+  #text(0.7em, fill: gray)[凭小票至前台开具发票]
+  
+  #v(1em)
+  
+  // 二维码 (用于小程序/支付)
+  // tiaoma.qrcode 也支持 width 参数，自动缩放
+  #tiaoma.qrcode("https://deepprint.ai/order/" + data.order_id, width: 2.5cm)
+  
+  #v(0.5em)
+  #text(0.8em)[扫码加会员，首单立减]
+]
 
-#v(1em)
-
-#text(weight: "bold")[Sample Data:]
-- Store: #data.store_name
-- Total: #data.total
+// 页脚留白，防止打印机切纸切到内容
+#v(1cm)
 `;
 
 // 默认数据
 const DEFAULT_DATA = {
-  store_name: "示例店铺",
-  items: [
-    { name: "商品 A", price: 10.00 },
-    { name: "商品 B", price: 20.00 }
-  ],
-  total: 30.00
+  "order_id": "ORD-20268888",
+  "time": "2026-02-04 12:30",
+  "total": "128.00",
+  "items": [
+    {
+      "name": "拿铁咖啡",
+      "price": 28.00
+    },
+    {
+      "name": "海盐芝士蛋糕",
+      "price": 35.00
+    },
+    {
+      "name": "经典意式肉酱面",
+      "price": 45.00
+    },
+    {
+      "name": "鲜榨橙汁",
+      "price": 20.00
+    }
+  ]
 };
 
 export default function DeepPrintStudio() {

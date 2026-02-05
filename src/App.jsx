@@ -244,24 +244,46 @@ const TypstPreview = ({ code, data }) => {
       try {
         const comp = createTypstCompiler();
 
-        // 加载中文字体 - 先获取数据，防止 WASM Panic
-        let fontData = null;
+        // 加载字体
+        let fontDataList = [];
         try {
-          // 尝试加载 public/fonts/SimHei.ttf
-          const fontRes = await fetch('/fonts/NotoSansSC-Regular.ttf');
-          if (fontRes.ok) {
-            fontData = new Uint8Array(await fontRes.arrayBuffer());
-          } else {
-            console.error('NotoSansSC-Regular.ttf font not found');
-            throw new Error('未找到 NotoSansSC-Regular.ttf 字体文件，请将其放入 public/fonts/ 目录');
-          }
+          const fontFiles = [
+            'DejaVuSansMono-Bold.ttf',
+            'DejaVuSansMono.ttf',
+            'LibertinusSans-Bold.otf',
+            'LibertinusSans-Italic.otf',
+            'LibertinusSans-Regular.otf',
+            'LibertinusSerif-Bold.otf',
+            'LibertinusSerif-BoldItalic.otf',
+            'LibertinusSerif-Italic.otf',
+            'LibertinusSerif-Regular.otf',
+            'NewCMMath-Book.otf',
+            'NotoSansSC-Bold.ttf',
+            'NotoSansSC-Regular.ttf',
+            'NotoSerifSC-Bold.ttf',
+            'NotoSerifSC-Regular.ttf'
+          ];
+
+          console.log(`正在加载 ${fontFiles.length} 个字体...`);
+
+          const fontPromises = fontFiles.map(async (file) => {
+            try {
+              const res = await fetch(`/fonts/${file}`);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const buffer = await res.arrayBuffer();
+              return new Uint8Array(buffer);
+            } catch (e) {
+              console.error(`Failed to load font ${file}:`, e);
+              return null;
+            }
+          });
+
+          const results = await Promise.all(fontPromises);
+          fontDataList = results.filter(f => f !== null);
+          console.log(`成功加载 ${fontDataList.length}/${fontFiles.length} 个字体`);
+
         } catch (fontErr) {
-          console.error('Failed to load font:', fontErr);
-          if (mounted) {
-            setError(fontErr.message || '字体加载失败');
-            setLoading(false);
-          }
-          return;
+          console.error('Fatal error loading fonts:', fontErr);
         }
 
         // 确保 WASM 文件已加载 (如 jogs.wasm)
@@ -273,7 +295,7 @@ const TypstPreview = ({ code, data }) => {
             module_or_path: fetch('/assets/typst_ts_web_compiler_bg.wasm').then(res => res.arrayBuffer())
           }),
           beforeBuild: [
-            preloadRemoteFonts([fontData]),
+            preloadRemoteFonts(fontDataList),
             initOptions.withAccessModel(sharedAccessModel),
             initOptions.withPackageRegistry(sharedPackageRegistry)
           ]

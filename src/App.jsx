@@ -357,9 +357,6 @@ const TypstPreview = ({ code, data }) => {
     );
   }
 
-  // 获取设备像素比，用于高清渲染
-  const pixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-
   return (
     <div className="w-full h-full flex flex-col bg-slate-200">
       {/* 缩放工具栏 */}
@@ -447,7 +444,6 @@ const TypstPreview = ({ code, data }) => {
               <TypstDocument
                 fill="#ffffff"
                 artifact={artifact}
-                pixelPerPt={pixelRatio * 2}
               />
             </div>
           </div>

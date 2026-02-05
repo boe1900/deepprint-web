@@ -1,20 +1,8 @@
 [
     {
-        "name": "codetastic",
-        "version": "0.2.2",
-        "description": "强大的条码和二维码库 (推荐)",
-        "source": "github:jneug/typst-codetastic#v0.2.2"
-    },
-    {
-        "name": "cades",
-        "version": "0.3.1",
-        "description": "最佳二维码库 (支持 width 参数)",
-        "source": "github:Midbin/cades/typst-package#main"
-    },
-    {
-        "name": "jogs",
-        "version": "0.2.4",
-        "description": "cades 的底层依赖库 (必须安装)",
-        "source": "github:Enter-tainer/jogs/typst-package#master"
+        "name": "tiaoma",
+        "version": "0.3.0",
+        "description": "全能条码库 (支持 Code 128)",
+        "source": "https://packages.typst.org/preview/tiaoma-0.3.0.tar.gz"
     }
 ]

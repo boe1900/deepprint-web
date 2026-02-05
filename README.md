@@ -1,21 +1,64 @@
-# React + Vite
+# DeepPrint Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern, browser-based Typst editor and previewer built for high-performance receipt and document generation.
 
-Currently, two official plugins are available:
+![Features](https://img.shields.io/badge/Status-Active-success) ![License](https://img.shields.io/badge/License-MIT-blue)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🏗 Tech Stack
 
-## React Compiler
+This project leverages the latest web technologies for a seamless local-first experience:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Core & Framework
+- **React 19**: Utilizing the latest React features for efficient UI rendering.
+- **Vite 7**: Next-generation frontend tooling for instant HMR and optimized builds.
+- **Hono**: Ultrafast web framework running on the edge for backend logic.
 
-## Expanding the ESLint configuration
+### Styling & UI
+- **Tailwind CSS v4**: Utility-first CSS framework for rapid and responsive design.
+- **Lucide React**: Beautiful, consistent icons.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Editor & Rendering
+- **Monaco Editor**: VS Code-like editing experience with syntax highlighting.
+- **Typst.ts (WASM)**: Running the full Typst compiler in the browser via WebAssembly for millisecond-level preview updates.
+- **Typst.react**: React bindings for Typst artifacts.
 
-## Cloudflare Deployment
+### AI & Intelligence
+- **Vercel AI SDK**: Unified interface for building AI-powered features.
+- **OpenAI**: Powering the "DeepPrint Copilot" for natural language to Typst code generation.
+
+### Infrastructure
+- **Cloudflare Pages**: Hosting the static assets.
+- **Cloudflare Functions**: Serverless backend execution.
+
+## ✨ Key Features
+
+- **Real-time Preview**: Instant feedback as you type Typst code.
+- **WASM-based Compilation**: Zero-latency compilation running entirely client-side.
+- **AI Copilot**: Generate layouts and templates using natural language.
+- **JSON Data Injection**: Separate data from logic for dynamic document generation.
+- **Theme Support**: Built-in Light, Dark, and System theme modes.
+
+## 🚀 Development
+
+### Prerequisites
+
+- Node.js 18+
+- npm
+
+### Quick Start
+
+1.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
+2.  **Start development server**:
+    ```bash
+    npm run dev
+    ```
+    This command automatically syncs the local Typst universe packages and starts Vite.
+
+## ☁️ Cloudflare Deployment
 
 This project is configured for deployment on Cloudflare Pages.
 

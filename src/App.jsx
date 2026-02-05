@@ -8,7 +8,8 @@ import {
   PanelLeftClose, PanelLeft, Loader2,
   FileCode, Sparkles, AlertCircle,
   ZoomIn, ZoomOut, RotateCcw, Maximize2,
-  Sun, Moon, Monitor
+  Sun, Moon, Monitor,
+  Bold, Italic, Underline, Heading, List, ListOrdered, Code
 } from 'lucide-react';
 import { useTheme, THEMES } from './hooks/useTheme';
 
@@ -503,7 +504,7 @@ export default function DeepPrintStudio() {
 
   // UI 状态
   const [showChat, setShowChat] = useState(true);
-  const [activeTab, setActiveTab] = useState('editor'); // 'editor' | 'preview' | 'data'
+  const [activeTab, setActiveTab] = useState('code'); // 'code' | 'data'
   const messagesEndRef = useRef(null);
 
   // 主题
@@ -527,7 +528,6 @@ export default function DeepPrintStudio() {
           typstCode = typstCode.split('```')[1].split('```')[0];
         }
         setCode(typstCode.trim());
-        setActiveTab('preview');
       }
     }
   });
@@ -547,6 +547,83 @@ export default function DeepPrintStudio() {
     } catch (err) {
       setDataError('JSON 格式错误');
     }
+  }, []);
+
+  // Monaco 编辑器 ref
+  const editorRef = useRef(null);
+  const handleEditorMount = useCallback((editor) => {
+    editorRef.current = editor;
+  }, []);
+
+  // 快捷插入：包裹选中文本
+  // 快捷插入：包裹选中文本
+  const wrapSelection = useCallback((prefix, suffix = prefix) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const selection = editor.getSelection();
+    const selectedText = editor.getModel().getValueInRange(selection);
+    const newText = `${prefix}${selectedText}${suffix}`;
+
+    editor.executeEdits('toolbar', [{
+      range: selection,
+      text: newText,
+      forceMoveMarkers: true
+    }]);
+
+    // 如果未选中文本，将光标移动到中间
+    if (!selectedText) {
+      const position = editor.getPosition();
+      // forceMoveMarkers: true 会将光标放在插入文本的后面
+      // 需要往回移动 suffix 的长度
+      editor.setPosition({
+        lineNumber: position.lineNumber,
+        column: position.column - suffix.length
+      });
+    }
+
+    editor.focus();
+  }, []);
+
+  // 快捷插入：行首添加前缀
+  const prefixLine = useCallback((prefix) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const position = editor.getPosition();
+    const lineContent = editor.getModel().getLineContent(position.lineNumber);
+
+    // 检查是否已有前缀
+    if (lineContent.startsWith(prefix)) {
+      // 移除前缀
+      editor.executeEdits('toolbar', [{
+        range: { startLineNumber: position.lineNumber, startColumn: 1, endLineNumber: position.lineNumber, endColumn: prefix.length + 1 },
+        text: '',
+        forceMoveMarkers: true
+      }]);
+    } else {
+      // 添加前缀
+      editor.executeEdits('toolbar', [{
+        range: { startLineNumber: position.lineNumber, startColumn: 1, endLineNumber: position.lineNumber, endColumn: 1 },
+        text: prefix,
+        forceMoveMarkers: true
+      }]);
+    }
+    editor.focus();
+  }, []);
+
+  // 快捷插入：插入文本
+  const insertText = useCallback((text) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const selection = editor.getSelection();
+    editor.executeEdits('toolbar', [{
+      range: selection,
+      text: text,
+      forceMoveMarkers: true
+    }]);
+    editor.focus();
   }, []);
 
   return (
@@ -651,53 +728,113 @@ export default function DeepPrintStudio() {
         </div>
       )}
 
-      {/* 右侧：工作区 */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Toolbar */}
-        <div className="h-14 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center px-4 gap-4">
+      {/* 中间：编辑器区域 */}
+      <div className="flex-1 flex flex-col min-w-0 border-r border-slate-200 dark:border-slate-700">
+        {/* 编辑器工具栏 */}
+        <div className="h-12 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center px-4 gap-4">
           {!showChat && (
             <button
               onClick={() => setShowChat(true)}
               className="p-2 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+              title="展开 AI 对话"
             >
               <PanelLeft size={18} />
             </button>
           )}
 
-          {/* Tabs */}
+          {/* Code / Data Tab */}
           <div className="flex gap-1 bg-slate-200 dark:bg-slate-700/50 p-1 rounded-lg">
             <button
-              onClick={() => setActiveTab('editor')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'editor'
+              onClick={() => setActiveTab('code')}
+              className={`px-3 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${activeTab === 'code'
                 ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
             >
               <Code2 size={14} />
-              编辑器
-            </button>
-            <button
-              onClick={() => setActiveTab('preview')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'preview'
-                ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-            >
-              <Eye size={14} />
-              预览
+              Code
             </button>
             <button
               onClick={() => setActiveTab('data')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${activeTab === 'data'
+              className={`px-3 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${activeTab === 'data'
                 ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
             >
               <Database size={14} />
-              数据
-              {dataError && <span className="w-2 h-2 rounded-full bg-red-500" />}
+              Data
+              {dataError && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
             </button>
           </div>
+
+          {/* 快捷格式化按钮 - 仅在 Code 模式显示 */}
+          {activeTab === 'code' && (
+            <div className="flex items-center gap-0.5 border-l border-slate-300 dark:border-slate-600 pl-4">
+              <button
+                onClick={() => wrapSelection('*')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="加粗 *text*"
+              >
+                <Bold size={16} />
+              </button>
+              <button
+                onClick={() => wrapSelection('_')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="斜体 _text_"
+              >
+                <Italic size={16} />
+              </button>
+              <button
+                onClick={() => wrapSelection('#underline[', ']')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="下划线 #underline[text]"
+              >
+                <Underline size={16} />
+              </button>
+
+              <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+              <button
+                onClick={() => prefixLine('= ')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="标题 = heading"
+              >
+                <Heading size={16} />
+              </button>
+              <button
+                onClick={() => prefixLine('- ')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="无序列表 - item"
+              >
+                <List size={16} />
+              </button>
+              <button
+                onClick={() => prefixLine('+ ')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="有序列表 + item"
+              >
+                <ListOrdered size={16} />
+              </button>
+
+              <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+              <button
+                onClick={() => wrapSelection('$')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="数学公式 $formula$"
+              >
+                <span className="text-sm font-serif">Σ</span>
+              </button>
+              <button
+                onClick={() => wrapSelection('```\n', '\n```')}
+                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                title="代码块"
+              >
+                <Code size={16} />
+              </button>
+
+            </div>
+          )}
 
           <div className="ml-auto flex items-center gap-3">
             {/* 主题切换按钮 */}
@@ -714,16 +851,17 @@ export default function DeepPrintStudio() {
           </div>
         </div>
 
-        {/* Content Area */}
+        {/* 编辑器内容区 */}
         <div className="flex-1 overflow-hidden relative">
-          {/* Editor Panel */}
-          {activeTab === 'editor' && (
+          {/* Code Editor */}
+          {activeTab === 'code' && (
             <Editor
               height="100%"
               defaultLanguage="markdown"
               theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
               value={code}
               onChange={(value) => setCode(value || '')}
+              onMount={handleEditorMount}
               options={{
                 fontSize: 14,
                 fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
@@ -736,23 +874,15 @@ export default function DeepPrintStudio() {
             />
           )}
 
-          {/* Preview Panel */}
-          {activeTab === 'preview' && (
-            <div className="absolute inset-0 bg-slate-100 dark:bg-slate-300 overflow-auto">
-              <TypstPreview code={code} data={data} />
-            </div>
-          )}
-
-          {/* Data Panel */}
+          {/* Data Editor */}
           {activeTab === 'data' && (
             <div className="absolute inset-0 flex flex-col">
-              <div className="p-4 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
-                <h3 className="text-sm font-medium">业务数据 (JSON)</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  数据将通过 <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">sys.inputs.payload</code> 注入到模板中
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  JSON 数据将通过 <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">data</code> 变量注入到模板
                 </p>
                 {dataError && (
-                  <p className="text-xs text-red-500 dark:text-red-400 mt-2 flex items-center gap-1">
+                  <p className="text-xs text-red-500 dark:text-red-400 mt-1 flex items-center gap-1">
                     <AlertCircle size={12} />
                     {dataError}
                   </p>
@@ -781,10 +911,15 @@ export default function DeepPrintStudio() {
         </div>
 
         {/* Status Bar */}
-        <div className="h-8 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-4 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+        <div className="h-7 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-4 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
           <span>Typst WASM Engine</span>
           <span>{code.length} chars</span>
         </div>
+      </div>
+
+      {/* 右侧：实时预览 */}
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-200 dark:bg-slate-300">
+        <TypstPreview code={code} data={data} />
       </div>
     </div>
   );
